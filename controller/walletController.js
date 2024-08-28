@@ -59,42 +59,43 @@ const verifyTransaction = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Transaction already processed.',
-        walletBalance: existingTransaction.walletBalance, // Return the current wallet balance if needed
+        walletBalance: existingTransaction.walletBalance,
       });
     }
 
     // Verify the transaction with Paystack
-    const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.PAYMENT_PAYSTACK_SECRET_KEY}`,
-      },
-    });
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYMENT_PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
 
-    if (response.data.data.status === 'success') {
-      // Find the user by ID
+    // Check if the response from Paystack is valid and successful
+    if (response.data && response.data.data && response.data.data.status === 'success') {
       const user = await User.findById(userId);
       if (!user) {
         return res.status(404).send('User not found.');
       }
 
-      // Ensure user's wallet balance is initialized
       if (isNaN(user.walletBalance)) {
         user.walletBalance = 0;
       }
 
-      // Validate and parse the amount
       const validAmount = parseFloat(amount);
       if (isNaN(validAmount)) {
         return res.status(400).send('Invalid amount.');
       }
 
-      // Save the transaction to the database
+      // Save the transaction
       const transaction = new Transaction({
         userId: user._id,
         amount: validAmount,
         type: 'credit',
         reference,
-        walletBalance: user.walletBalance + validAmount, // Store the wallet balance after the transaction
+        walletBalance: user.walletBalance + validAmount,
       });
 
       await transaction.save();
@@ -103,18 +104,28 @@ const verifyTransaction = async (req, res) => {
       user.walletBalance += validAmount;
       await user.save();
 
-      // Send a success response
       return res.status(200).json({
         walletBalance: user.walletBalance,
         success: true,
-        message: "Transaction successful",
+        message: 'Transaction successful',
       });
     } else {
-      return res.status(400).json({ success: false, message: response.data.message });
+      return res.status(400).json({
+        success: false,
+        message: response.data.message || 'Verification failed.',
+      });
     }
   } catch (error) {
-    console.error("Error in verifyTransaction:", error.response ? error.response.data : error.message);
-    return res.status(500).json({ success: false, message: "Transaction verification failed" });
+    console.error(
+      'Error in verifyTransaction:',
+      error.response ? error.response.data : error.message
+    );
+    return res.status(500).json({
+      success: false,
+      message:
+        error.response?.data?.message ||
+        'Transaction verification failed. Please try again.',
+    });
   }
 };
 
