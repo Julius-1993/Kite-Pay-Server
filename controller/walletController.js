@@ -47,12 +47,22 @@ const addFundsToWallet = async (req, res) => {
 
 const verifyTransaction = async (req, res) => {
   const { reference, userId, amount } = req.body;
-  
+
   if (!reference || !userId || !amount) {
     return res.status(400).send('Reference, user ID, and amount are required.');
   }
 
   try {
+    // Check for existing transaction with the same reference before verifying with Paystack
+    const existingTransaction = await Transaction.findOne({ reference });
+    if (existingTransaction) {
+      return res.status(400).json({
+        success: false,
+        message: 'Transaction already processed.',
+        walletBalance: existingTransaction.walletBalance, // Return the current wallet balance if needed
+      });
+    }
+
     // Verify the transaction with Paystack
     const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
       headers: {
@@ -72,12 +82,6 @@ const verifyTransaction = async (req, res) => {
         user.walletBalance = 0;
       }
 
-      // Check for existing transaction with the same reference
-      const existingTransaction = await Transaction.findOne({ reference });
-      if (existingTransaction) {
-        return res.status(400).send('Transaction already processed.');
-      }
-
       // Validate and parse the amount
       const validAmount = parseFloat(amount);
       if (isNaN(validAmount)) {
@@ -90,6 +94,7 @@ const verifyTransaction = async (req, res) => {
         amount: validAmount,
         type: 'credit',
         reference,
+        walletBalance: user.walletBalance + validAmount, // Store the wallet balance after the transaction
       });
 
       await transaction.save();
@@ -133,21 +138,6 @@ const fetchBankList = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to fetch bank list" });
   }
 };
-
-
-// const fetchBankList = async (req, res) => {
-//   try {
-//     const response = await axios.get('https://api.paystack.co/bank', {
-//       headers: {
-//         Authorization: `Bearer ${process.env.PAYMENT_PAYSTACK_SECRET_KEY}`
-//       }
-//     });
-//     return res.status(200).json({ success: true, banks: response.data.data });
-//   } catch (error) {
-//     console.error("Failed to fetch bank list:", error.message);
-//     return res.status(500).json({ success: false, message: "Failed to fetch bank list" });
-//   }
-// };
 
 
 // Step 3: Fetch account name based on account number and selected bank code
